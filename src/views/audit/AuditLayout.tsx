@@ -209,8 +209,8 @@ const AuditLayout = () => {
 
       // Fetch material transactions for cost calculation
       const [rawTransactionsRes, packingTransactionsRes] = await Promise.all([
-        fetch(`/api/raw-material-transactions?startDate=${dateRange.from}&endDate=${dateRange.to}&type=add`),
-        fetch(`/api/packing-material-transactions?startDate=${dateRange.from}&endDate=${dateRange.to}&type=add`)
+        fetch(`/api/raw-material-transactions?startDate=${dateRange.from}&endDate=${dateRange.to}`),
+        fetch(`/api/packing-material-transactions?startDate=${dateRange.from}&endDate=${dateRange.to}`)
       ])
 
       if (!rawTransactionsRes.ok || !packingTransactionsRes.ok) {
@@ -220,9 +220,18 @@ const AuditLayout = () => {
       const rawTransactions = await rawTransactionsRes.json()
       const packingTransactions = await packingTransactionsRes.json()
 
-      // Calculate raw material and packing material costs
-      const totalRawMaterialCost = rawTransactions.reduce((sum: number, t: any) => sum + (t.price || 0), 0)
-      const totalPackingMaterialCost = packingTransactions.reduce((sum: number, t: any) => sum + (t.price || 0), 0)
+      // Calculate raw material and packing material costs, considering transaction type
+      const totalRawMaterialCost = rawTransactions.reduce((sum: number, t: any) => {
+        // Add if type is 'add', subtract if type is 'subtract'
+        const modifier = t.type === 'add' ? 1 : -1
+        return sum + (t.price || 0) * modifier
+      }, 0)
+
+      const totalPackingMaterialCost = packingTransactions.reduce((sum: number, t: any) => {
+        // Add if type is 'add', subtract if type is 'subtract'
+        const modifier = t.type === 'add' ? 1 : -1
+        return sum + (t.price || 0) * modifier
+      }, 0)
 
       // Calculate profit
       const totalRevenue = totalSales + totalMiscIncomeAmount

@@ -32,8 +32,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           query.type = queryType;
         }
         
+        // Fetch the transactions
         const transactions = await collection.find(query).sort({ date: -1 }).toArray();
-        res.status(200).json(transactions);
+        
+        // Return transactions with price sign adjusted according to type
+        const formattedTransactions = transactions.map(t => ({
+          ...t,
+          // No need to modify the price here since we'll handle it in the frontend calculation
+        }));
+        
+        res.status(200).json(formattedTransactions);
         break;
 
       case 'POST':

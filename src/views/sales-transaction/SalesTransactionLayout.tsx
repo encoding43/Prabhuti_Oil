@@ -25,7 +25,6 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Grid from '@mui/material/Grid'
 import TablePagination from '@mui/material/TablePagination'
 import MenuItem from '@mui/material/MenuItem'
-import { products } from '@/data/products'
 
 interface Product {
   _id: string
@@ -334,7 +333,7 @@ const SalesTransactionLayout = () => {
     })
   }
 
-  // Fix the handleSaveEdit function to properly handle daily summary updates
+  // Fix the handleSaveEdit function to properly track material usage updates
   const handleSaveEdit = async () => {
     if (!editData) return
 
@@ -353,13 +352,33 @@ const SalesTransactionLayout = () => {
       const paidAmount = originalPayments.reduce((sum, payment) => sum + payment.amount, 0)
       const remainingAmount = totalAmount - paidAmount
 
-      // Important: Add a flag to prevent duplicate material usage entries
+      // Compare products to determine if material usage should be updated
+      // We need material updates if:
+      // 1. Products were added or removed
+      // 2. Quantities (qty or nos) changed for any product
+      const originalProducts = viewModal.data?.products || []
+      const productsChanged =
+        originalProducts.length !== editData.products.length ||
+        editData.products.some((product, index) => {
+          // If we have more products than original, consider it a change
+          if (index >= originalProducts.length) return true
+
+          const original = originalProducts[index]
+          // Check if product ID, quantity, or number changed
+          return (
+            product.productId !== original.productId ||
+            product.qty !== original.qty ||
+            product.nos !== original.nos ||
+            product.isPackagingMaterialUsed !== original.isPackagingMaterialUsed
+          )
+        })
+
       const updateData = {
         ...editData,
         totalAmount,
         remainingAmount,
         status: remainingAmount > 0 ? 'pending' : 'completed',
-        payments: originalPayments, // Preserve the original payments
+        payments: originalPayments,
         products: editData.products.map(product => ({
           productId: product.productId,
           type: product.type,
@@ -371,7 +390,8 @@ const SalesTransactionLayout = () => {
           discount: product.discount || 0,
           finalPrice: product.finalPrice
         })),
-        skipMaterialUsageUpdate: true // Flag to prevent duplicate material usage entries
+        // Only skip material updates if products haven't changed
+        skipMaterialUsageUpdate: !productsChanged
       }
 
       const response = await fetch(`/api/sales/${editData._id}`, {
@@ -380,6 +400,7 @@ const SalesTransactionLayout = () => {
         body: JSON.stringify(updateData)
       })
 
+      // ...existing code for handling response...
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to update transaction')
@@ -397,9 +418,11 @@ const SalesTransactionLayout = () => {
       setEditData(null)
       alert('Transaction updated successfully')
     } catch (error) {
+      // ...existing error handling...
       console.error('Error:', error)
       alert(error instanceof Error ? error.message : 'Failed to update transaction')
     } finally {
+      // ...existing code...
       setLoading(false)
     }
   }
