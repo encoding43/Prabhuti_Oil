@@ -71,7 +71,7 @@ const MenuItem: ForwardRefRenderFunction<HTMLLIElement, MenuItemProps> = (props,
   const [active, setActive] = useState(false)
 
   // Hooks
-  const pathname = usePathname()
+  const pathname = usePathname() || ''
   const { menuItemStyles, renderExpandedMenuItemIcon, textTruncate } = useVerticalMenu()
 
   const { toggleVerticalNav, isToggled, isBreakpointReached } = useVerticalNav()
