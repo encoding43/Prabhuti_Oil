@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
       .toArray();
 
-    // Get raw material usage and expenses
+    // Get raw material usage and expenses (only add transactions)
     const rawMaterialTransactions = await db.collection('rawmaterialtransactions')
       .find({
         date: { $gte: start, $lte: end }
