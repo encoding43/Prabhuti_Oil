@@ -322,7 +322,7 @@ const PackingMaterialLayout = () => {
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, unit: e.target.value as 'ml' | 'mg' }))}
                 >
                   <MenuItem value='ml'>ml</MenuItem>
-                  <MenuItem value='mg'>mg</MenuItem>
+                  <MenuItem value='g'>g</MenuItem>
                 </TextField>
               </Grid>
               <Grid item xs={12}>

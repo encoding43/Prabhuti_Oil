@@ -293,7 +293,7 @@ const PendingBillsLayout = () => {
                           <TableHead>
                             <TableRow>
                               <TableCell>Product</TableCell>
-                              <TableCell align='right'>Quantity (ml)</TableCell>
+                              <TableCell align='right'>Quantity (ml/g)</TableCell>
                               <TableCell align='right'>Nos</TableCell>
                               <TableCell align='right'>Total Price (₹)</TableCell>
                               <TableCell align='right'>Discount (₹)</TableCell>
