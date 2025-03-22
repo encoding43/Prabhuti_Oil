@@ -37,6 +37,7 @@ interface ProductItem {
   totalPrice: number
   discount: number
   finalPrice: number
+  packingMaterialId?: string
 }
 
 interface FormData {
@@ -74,6 +75,7 @@ const AddSaleLayouts = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [packingMaterials, setPackingMaterials] = useState<any[]>([])
 
   // Fetch products when component mounts
   useEffect(() => {
@@ -91,6 +93,22 @@ const AddSaleLayouts = () => {
     }
 
     fetchProducts()
+  }, [])
+
+  // Fetch packing materials when component mounts
+  useEffect(() => {
+    const fetchPackingMaterials = async () => {
+      try {
+        const response = await fetch('/api/packing-materials')
+        if (!response.ok) throw new Error('Failed to fetch packing materials')
+        const data = await response.json()
+        setPackingMaterials(data)
+      } catch (error) {
+        console.error('Error fetching packing materials:', error)
+      }
+    }
+
+    fetchPackingMaterials()
   }, [])
 
   const handleAddProduct = () => {
@@ -123,7 +141,9 @@ const AddSaleLayouts = () => {
     const productData = products.find(p => p._id === product.productId)
     if (!productData) return 0
 
-    const qtyPrice = productData.quantities.find(q => q.qty === product.qty)
+    const qtyPrice = productData.quantities.find(
+      q => q.qty === product.qty && q.packingMaterialId === product.packingMaterialId
+    )
     if (!qtyPrice) return 0
 
     return qtyPrice.price * product.nos
@@ -131,24 +151,43 @@ const AddSaleLayouts = () => {
 
   const handleProductChange = (index: number, field: keyof ProductItem, value: any) => {
     const updatedProducts = [...formData.products]
-    const currentProduct = { ...updatedProducts[index], [field]: value }
+    const currentProduct = { ...updatedProducts[index] }
 
     if (field === 'productId') {
       const productData = products.find(p => p._id === value)
       if (productData) {
         currentProduct.type = productData.type
         currentProduct.name = productData.name
+        currentProduct.productId = value
+        // Reset other values when product changes
+        currentProduct.qty = 0
+        currentProduct.packingMaterialId = ''
+        currentProduct.totalPrice = 0
+        currentProduct.discount = 0
+        currentProduct.finalPrice = 0
       }
-    }
+    } else if (field === 'quantity') {
+      // Handle combined qty and packingMaterialId change
+      const [qty, packingMaterialId] = (value as string).split('-')
+      currentProduct.qty = Number(qty)
+      currentProduct.packingMaterialId = packingMaterialId
 
-    // Recalculate prices
-    if (['productId', 'qty', 'nos'].includes(field)) {
+      // Recalculate price
+      currentProduct.totalPrice = calculateProductPrice({
+        ...currentProduct,
+        qty: Number(qty),
+        packingMaterialId
+      })
+      currentProduct.finalPrice = currentProduct.totalPrice - (currentProduct.discount || 0)
+    } else if (field === 'nos') {
+      currentProduct.nos = Number(value)
       currentProduct.totalPrice = calculateProductPrice(currentProduct)
-      currentProduct.finalPrice = currentProduct.totalPrice - currentProduct.discount
-    }
-
-    if (field === 'discount') {
-      currentProduct.finalPrice = currentProduct.totalPrice - value
+      currentProduct.finalPrice = currentProduct.totalPrice - (currentProduct.discount || 0)
+    } else if (field === 'discount') {
+      currentProduct.discount = Number(value)
+      currentProduct.finalPrice = currentProduct.totalPrice - Number(value)
+    } else {
+      currentProduct[field] = value
     }
 
     updatedProducts[index] = currentProduct
@@ -229,6 +268,12 @@ const AddSaleLayouts = () => {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  // Add a helper function for packing material display
+  const getQuantityDisplayText = (product: Product | undefined, quantity: any) => {
+    if (!product) return ''
+    return quantity.displayName || `${quantity.qty}ml - ₹${quantity.price}`
   }
 
   return (
@@ -361,12 +406,22 @@ const AddSaleLayouts = () => {
                         select
                         fullWidth
                         label='Quantity'
-                        value={product.qty}
-                        onChange={e => handleProductChange(index, 'qty', Number(e.target.value))}
+                        value={`${product.qty}-${product.packingMaterialId || ''}`}
+                        onChange={e => {
+                          const [qty, packingMaterialId] = e.target.value.split('-')
+                          handleProductChange(index, 'quantity', e.target.value)
+                        }}
                       >
                         {products
                           .find(p => p._id === product.productId)
-                          ?.quantities.map(({ qty }) => <MenuItem key={qty} value={qty}>{`${qty}ml`}</MenuItem>) || []}
+                          ?.quantities.map(q => (
+                            <MenuItem key={`${q.qty}-${q.packingMaterialId}`} value={`${q.qty}-${q.packingMaterialId}`}>
+                              {getQuantityDisplayText(
+                                products.find(p => p._id === product.productId),
+                                q
+                              )}
+                            </MenuItem>
+                          ))}
                       </TextField>
                     </Grid>
 

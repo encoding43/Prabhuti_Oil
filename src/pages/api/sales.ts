@@ -2,10 +2,24 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 interface QuantityInfo {
   qty: number;
-  packingMaterialId?: ObjectId;
+  packingMaterialId: ObjectId;
+  price: number;
 }
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
+
+interface Product {
+  productId: ObjectId;
+  type: string;
+  name: string;
+  qty: number;
+  nos: number;
+  isPackagingMaterialUsed: boolean;
+  totalPrice: number;
+  discount: number;
+  finalPrice: number;
+  packingMaterialId: ObjectId | null;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   let session;
@@ -28,177 +42,142 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(400).json({ error: 'Required fields missing' });
           }
 
-          // Initial payments array
-          const initialPayments = [];
-          if (saleData.onlineAmount > 0) {
-            initialPayments.push({
-              _id: new ObjectId(),
-              method: 'online',
-              amount: Number(saleData.onlineAmount),
-              date: new Date(saleData.date || Date.now()) // Use sale date for payment
-            });
-          }
-          if (saleData.cashAmount > 0) {
-            initialPayments.push({
-              _id: new ObjectId(),
-              method: 'cash',
-              amount: Number(saleData.cashAmount),
-              date: new Date(saleData.date || Date.now()) // Use sale date for payment
-            });
-          }
-
-          // Use the sale date from request or default to now
-          const saleDate = new Date(saleData.date || Date.now());
-          
-          // Create sale record with structured data
-          interface Product {
-            productId: ObjectId;
-            type: string;
-            name: string;
-            qty: number;
-            nos: number;
-            isPackagingMaterialUsed: boolean;
-            totalPrice: number;
-            discount?: number;
-            finalPrice: number;
-          }
-
-          interface Payment {
-            _id: ObjectId;
-            method: string;
-            amount: number;
-            date: Date;
-          }
-
-          interface Sale {
-            date: Date;
-            customerName: string;
-            customerMobile?: string;
-            customerAddress?: string;
-            saleType: string;
-            courierPrice?: number;
-            products: Product[];
-            totalAmount: number;
-            payments: Payment[];
-            remainingAmount: number;
-            status: string;
-            createdAt: Date;
-            updatedAt: Date;
-          }
-
-          const newSale: Sale = {
-            date: saleDate,
-            customerName: saleData.customerName,
-            customerMobile: saleData.customerMobile || '',
-            customerAddress: saleData.customerAddress || '',
-            saleType: saleData.saleType,
-            courierPrice: saleData.courierPrice || 0,
-            products: saleData.products.map((product: any) => ({
-              productId: new ObjectId(product.productId),
-              type: product.type,
-              name: product.name,
-              qty: product.qty,
-              nos: product.nos,
-              isPackagingMaterialUsed: product.isPackagingMaterialUsed,
-              totalPrice: product.totalPrice,
-              discount: product.discount || 0,
-              finalPrice: product.finalPrice
-            })),
-            totalAmount: saleData.totalAmount,
-            payments: initialPayments,
-            remainingAmount: saleData.remainingAmount,
-            status: saleData.remainingAmount > 0 ? 'pending' : 'completed',
-            createdAt: new Date(),
-            updatedAt: new Date()
-          };
-          const saleResult = await db.collection('sales').insertOne(newSale);
-
-          // Use the sale date instead of today's date
-          const saleDateMidnight = new Date(saleDate);
-          saleDateMidnight.setHours(0, 0, 0, 0);
-          
-          // Track raw material usage and oil sales for daily summary
-          const rawMaterialUsage: any[] = [];
-          const packingMaterialUsage: any[] = [];
-          const oilSales: any[] = [];
-          
-          // Process each product
-          for (const product of saleData.products) {
-            // Get product details
+          // Process products before inserting
+          const processedProducts = await Promise.all(saleData.products.map(async (product: any) => {
             const productDoc = await db.collection('products').findOne({
               _id: new ObjectId(product.productId)
             });
 
-            if (!productDoc) continue;
-
-            // Track oil sales for daily summary
-            if (productDoc.type === 'oil') {
-              oilSales.push({
-                productId: new ObjectId(product.productId),
-                productName: product.name,
-                quantity: product.qty * product.nos,
-                amount: product.finalPrice
-              });
+            if (!productDoc) {
+              throw new Error(`Product not found: ${product.productId}`);
             }
 
-            // Update packing material if used
-            if (product.isPackagingMaterialUsed) {
-              const quantityInfo = productDoc.quantities.find((q: any) => q.qty === product.qty);
-              if (quantityInfo?.packingMaterialId) {
-                // Update packing material stock
+            // Validate quantity info matches with product
+            const quantityInfo = productDoc.quantities.find(
+              (q: QuantityInfo) => 
+                q.qty === product.qty && 
+                q.packingMaterialId.toString() === product.packingMaterialId
+            );
+
+            if (!quantityInfo) {
+              throw new Error(`Invalid quantity configuration for product: ${product.name}`);
+            }
+
+            return {
+              ...product,
+              productId: new ObjectId(product.productId),
+              packingMaterialId: product.packingMaterialId ? new ObjectId(product.packingMaterialId) : null,
+              qty: Number(product.qty),
+              nos: Number(product.nos),
+              totalPrice: Number(product.totalPrice),
+              discount: Number(product.discount || 0),
+              finalPrice: Number(product.finalPrice)
+            };
+          }));
+
+          const newSale = {
+            date: new Date(saleData.date || Date.now()),
+            customerName: saleData.customerName,
+            customerMobile: saleData.customerMobile || '',
+            customerAddress: saleData.customerAddress || '',
+            saleType: saleData.saleType,
+            courierPrice: Number(saleData.courierPrice || 0),
+            products: processedProducts,
+            totalAmount: Number(saleData.totalAmount),
+            payments: saleData.onlineAmount > 0 || saleData.cashAmount > 0 ? [
+              ...(saleData.onlineAmount > 0 ? [{
+                _id: new ObjectId(),
+                method: 'online',
+                amount: Number(saleData.onlineAmount),
+                date: new Date(saleData.date || Date.now())
+              }] : []),
+              ...(saleData.cashAmount > 0 ? [{
+                _id: new ObjectId(),
+                method: 'cash',
+                amount: Number(saleData.cashAmount),
+                date: new Date(saleData.date || Date.now())
+              }] : [])
+            ] : [],
+            remainingAmount: Number(saleData.remainingAmount),
+            status: Number(saleData.remainingAmount) > 0 ? 'pending' : 'completed',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          const saleResult = await db.collection('sales').insertOne(newSale);
+
+          const saleDateMidnight = new Date(newSale.date);
+          saleDateMidnight.setHours(0, 0, 0, 0);
+          
+          const rawMaterialUsage: any[] = [];
+          const packingMaterialUsage: any[] = [];
+          const oilSales: any[] = [];
+          
+          for (const product of processedProducts) {
+            const productDoc = await db.collection('products').findOne({
+              _id: product.productId
+            });
+
+            if (productDoc) {
+              const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
+              await db.collection('rawmaterials').updateOne(
+                { _id: productDoc.rawMaterialId },
+                { $inc: { currentStock: -rawMaterialUsed } }
+              );
+
+              if (product.isPackagingMaterialUsed && product.packingMaterialId) {
                 await db.collection('packingmaterials').updateOne(
-                  { _id: quantityInfo.packingMaterialId },
+                  { _id: product.packingMaterialId },
                   { $inc: { currentStock: -product.nos } }
                 );
-                
-                // Get packing material details for daily summary
-                const packingMaterial = await db.collection('packingmaterials').findOne({
-                  _id: quantityInfo.packingMaterialId
+              }
+
+              if (productDoc.type === 'oil') {
+                oilSales.push({
+                  productId: product.productId,
+                  productName: product.name,
+                  quantity: product.qty * product.nos,
+                  amount: product.finalPrice,
+                  packingMaterialId: product.packingMaterialId
                 });
-                
+              }
+
+              if (product.isPackagingMaterialUsed && product.packingMaterialId) {
+                const packingMaterial = await db.collection('packingmaterials').findOne({
+                  _id: product.packingMaterialId
+                });
+
                 if (packingMaterial) {
                   packingMaterialUsage.push({
-                    materialId: quantityInfo.packingMaterialId,
+                    materialId: product.packingMaterialId,
                     materialName: packingMaterial.name,
                     quantity: product.nos,
-                    price: 0 // We don't track individual prices here
+                    price: 0
                   });
                 }
               }
-            }
 
-            // Calculate and update raw material
-            const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-            
-            // Update raw material stock
-            await db.collection('rawmaterials').updateOne(
-              { _id: productDoc.rawMaterialId },
-              { $inc: { currentStock: -rawMaterialUsed } }
-            );
-            
-            // Get raw material details for daily summary
-            const rawMaterial = await db.collection('rawmaterials').findOne({
-              _id: productDoc.rawMaterialId
-            });
-            
-            if (rawMaterial) {
-              // Add to raw material usage tracking
-              rawMaterialUsage.push({
-                materialId: productDoc.rawMaterialId,
-                materialName: rawMaterial.name,
-                quantity: rawMaterialUsed,
-                price: 0 // We don't track individual prices here
+              const rawMaterial = await db.collection('rawmaterials').findOne({
+                _id: productDoc.rawMaterialId
               });
+              
+              if (rawMaterial) {
+                rawMaterialUsage.push({
+                  materialId: productDoc.rawMaterialId,
+                  materialName: rawMaterial.name,
+                  quantity: rawMaterialUsed,
+                  price: 0
+                });
+              }
             }
           }
           
-          // Update daily summary with all the collected data
           await db.collection('dailysummary').updateOne(
             { date: saleDateMidnight },
             {
               $inc: {
-                totalSales: saleData.totalAmount,
-                pendingAmount: saleData.remainingAmount,
+                totalSales: newSale.totalAmount,
+                pendingAmount: newSale.remainingAmount,
                 onlineAmount: saleData.onlineAmount || 0,
                 cashAmount: saleData.cashAmount || 0
               },
@@ -213,9 +192,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             },
             { upsert: true }
           );
-        });
 
-        res.status(201).json({ success: true });
+          res.status(201).json({ success: true, saleId: saleResult.insertedId });
+        });
         break;
 
       default:
@@ -224,7 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } catch (error) {
     console.error('Database Error:', error);
-    res.status(500).json({ error: 'Error processing request' });
+    res.status(500).json({ error: 'Error processing request', details: error instanceof Error ? error.message : 'Unknown error' });
   } finally {
     session?.endSession();
   }

@@ -36,34 +36,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         break
 
       case 'POST':
-        const { type, name, rawMaterialId, recoveryRate, quantities } = req.body
+        try {
+          const { type, name, rawMaterialId, recoveryRate, quantities } = req.body;
 
-        // Example validation
-        if (!type || !name || !rawMaterialId) {
-          return res.status(400).json({ error: 'Missing required fields' })
+          // Validation
+          if (!type || !name || !rawMaterialId) {
+            return res.status(400).json({ error: 'Missing required fields' });
+          }
+
+          // Validate unique packing material combinations
+          const uniquePackaging = new Set();
+          for (const q of quantities) {
+            const key = `${q.qty}-${q.packingMaterialId}`;
+            if (uniquePackaging.has(key)) {
+              return res.status(400).json({ error: 'Duplicate quantity and packaging material combination' });
+            }
+            uniquePackaging.add(key);
+          }
+
+          // Get packing material details
+          const packingMaterialIds = quantities.map(q => new ObjectId(q.packingMaterialId));
+          const packingMaterials = await db.collection('packingmaterials')
+            .find({ _id: { $in: packingMaterialIds } })
+            .toArray();
+
+          // Process quantities with packing material details
+          const processedQuantities = quantities.map(q => {
+            const packingMaterial = packingMaterials.find(p => p._id.toString() === q.packingMaterialId);
+            return {
+              qty: q.qty,
+              price: q.price,
+              packingMaterialId: new ObjectId(q.packingMaterialId),
+              displayName: `${q.qty}ml - ${packingMaterial?.name || ''}`
+            };
+          });
+
+          const newProduct = {
+            type,
+            name,
+            rawMaterialId: new ObjectId(rawMaterialId),
+            recoveryRate: parseInt(recoveryRate) || 100,
+            quantities: processedQuantities,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          const insertResult = await db.collection('products').insertOne(newProduct);
+          res.status(201).json(insertResult);
+        } catch (error) {
+          console.error('Error:', error);
+          res.status(500).json({ error: 'Failed to create product' });
         }
-
-        // Convert string IDs to ObjectIds
-        const rawMaterialObjectId = new ObjectId(rawMaterialId)
-        
-        // Process quantities to convert packingMaterialId to ObjectId
-        const processedQuantities = quantities && quantities.map((q: any) => ({
-          ...q,
-          packingMaterialId: q.packingMaterialId ? new ObjectId(q.packingMaterialId) : null
-        }))
-
-        const newProduct = {
-          type,
-          name,
-          rawMaterialId: rawMaterialObjectId,
-          recoveryRate: parseInt(recoveryRate) || 100,
-          quantities: processedQuantities || [],
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-
-        const insertResult = await db.collection('products').insertOne(newProduct)
-        res.status(201).json(insertResult)
         break
 
       case 'PUT':

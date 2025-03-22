@@ -25,6 +25,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       },
       {
+        $lookup: {
+          from: 'packingmaterials',
+          localField: 'products.packingMaterialId',
+          foreignField: '_id',
+          as: 'packingMaterialDetails'
+        }
+      },
+      {
         $addFields: {
           products: {
             $map: {
@@ -44,6 +52,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         },
                         0
                       ]
+                    },
+                    packingMaterial: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$packingMaterialDetails',
+                            cond: { $eq: ['$$this._id', { $toObjectId: '$$product.packingMaterialId' }] }
+                          }
+                        },
+                        0
+                      ]
                     }
                   }
                 ]
@@ -58,11 +77,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: 'Bill not found' });
     }
 
-    // Format the data
+    // Format the response data to include display names
     const formattedBill = {
       ...bill,
       products: bill.products.map((product: any) => ({
         ...product,
+        displayName: `${product.qty}ml - ${product.packingMaterial?.name || ''}`,
         name: product.name,
         qty: product.qty || 0,
         nos: product.nos || 0,

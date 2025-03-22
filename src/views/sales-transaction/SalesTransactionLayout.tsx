@@ -30,7 +30,7 @@ interface Product {
   _id: string
   name: string
   type: 'oil' | 'other'
-  quantities: Array<{ qty: number; price: number }>
+  quantities: Array<{ qty: number; price: number; packingMaterialId: string; displayName: string }>
 }
 
 // Add this utility function at the top of the file
@@ -54,6 +54,7 @@ interface ProductItem {
   totalPrice: number
   discount: number
   finalPrice: number
+  packingMaterialId: string
 }
 
 interface SaleTransaction {
@@ -74,6 +75,7 @@ interface SaleTransaction {
     isPackagingMaterialUsed?: boolean
     totalPrice?: number
     discount?: number
+    packingMaterialId?: string
   }>
   totalAmount: number
   onlineAmount: number
@@ -196,7 +198,8 @@ const SalesTransactionLayout = () => {
           totalPrice: product.totalPrice || 0,
           discount: product.discount || 0,
           finalPrice: product.finalPrice || 0,
-          isPackagingMaterialUsed: product.isPackagingMaterialUsed || false
+          isPackagingMaterialUsed: product.isPackagingMaterialUsed || false,
+          packingMaterialId: product.packingMaterialId || ''
         })),
         // Ensure these values are properly set for editing
         courierPrice: details.courierPrice || 0,
@@ -286,6 +289,7 @@ const SalesTransactionLayout = () => {
         product.totalPrice = 0
         product.discount = 0
         product.finalPrice = 0
+        product.packingMaterialId = ''
       }
     } else if (field === 'type') {
       product.type = value
@@ -310,6 +314,23 @@ const SalesTransactionLayout = () => {
       product.finalPrice = (product.totalPrice || 0) - product.discount
     } else if (field === 'isPackagingMaterialUsed') {
       product.isPackagingMaterialUsed = value === 'true' || value === true
+    } else if (field === 'packingMaterialId') {
+      product.packingMaterialId = value
+    } else if (field === 'quantity') {
+      const [qty, packingMaterialId] = value.split('-')
+
+      // Find the selected product's quantity info
+      const selectedProduct = availableProducts.find(p => p._id === product.productId)
+      const quantityInfo = selectedProduct?.quantities.find(
+        q => q.qty === Number(qty) && q.packingMaterialId === packingMaterialId
+      )
+
+      if (quantityInfo) {
+        product.qty = Number(qty)
+        product.packingMaterialId = packingMaterialId
+        product.totalPrice = quantityInfo.price * product.nos
+        product.finalPrice = product.totalPrice - (product.discount || 0)
+      }
     } else {
       ;(product as any)[field] = value
     }
@@ -388,7 +409,8 @@ const SalesTransactionLayout = () => {
           isPackagingMaterialUsed: product.isPackagingMaterialUsed,
           totalPrice: product.totalPrice,
           discount: product.discount || 0,
-          finalPrice: product.finalPrice
+          finalPrice: product.finalPrice,
+          packingMaterialId: product.packingMaterialId
         })),
         // Only skip material updates if products haven't changed
         skipMaterialUsageUpdate: !productsChanged
@@ -440,7 +462,8 @@ const SalesTransactionLayout = () => {
       totalPrice: 0,
       discount: 0,
       finalPrice: 0,
-      isPackagingMaterialUsed: true
+      isPackagingMaterialUsed: true,
+      packingMaterialId: ''
     }
 
     setEditData({
@@ -520,6 +543,21 @@ const SalesTransactionLayout = () => {
       courierPrice: newCourierPrice,
       totalAmount: totalAmount
     })
+  }
+
+  // Add helper function for packing material details
+  const getPackingMaterialDetails = (product: any) => {
+    const productDetails = availableProducts.find(p => p._id === product.productId)
+    const quantityInfo = productDetails?.quantities.find(
+      q => q.qty === product.qty && q.packingMaterialId === product.packingMaterialId
+    )
+    return quantityInfo?.displayName || `${product.qty}ml`
+  }
+
+  // Update the getPackingMaterialDetails helper function
+  const getQuantityDisplayText = (product: Product | undefined, quantity: any) => {
+    if (!product) return ''
+    return quantity.displayName || `${quantity.qty}ml - ₹${quantity.price}`
   }
 
   return (
@@ -841,13 +879,18 @@ const SalesTransactionLayout = () => {
                                 select
                                 fullWidth
                                 label='Quantity'
-                                value={product.qty}
-                                onChange={e => handleProductChange(index, 'qty', e.target.value)}
+                                value={`${product.qty}-${product.packingMaterialId}`}
+                                onChange={e => handleProductChange(index, 'quantity', e.target.value)}
                               >
                                 {availableProducts
                                   .find(p => p._id === product.productId)
-                                  ?.quantities.map(({ qty }: { qty: number }) => (
-                                    <MenuItem key={qty} value={qty}>{`${qty}ml`}</MenuItem>
+                                  ?.quantities.map(({ qty, packingMaterialId, price, displayName }) => (
+                                    <MenuItem key={`${qty}-${packingMaterialId}`} value={`${qty}-${packingMaterialId}`}>
+                                      {getQuantityDisplayText(
+                                        availableProducts.find(p => p._id === product.productId),
+                                        { qty, packingMaterialId, price, displayName }
+                                      )}
+                                    </MenuItem>
                                   ))}
                               </TextField>
                             </Grid>
@@ -987,7 +1030,7 @@ const SalesTransactionLayout = () => {
                           <TableRow>
                             <TableCell>Date</TableCell>
                             <TableCell>Payment Mode</TableCell>
-                            <TableCell align='right'>Amount (₹)</TableCell>
+                            <TableCell align='right'>Amount (₹) </TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
