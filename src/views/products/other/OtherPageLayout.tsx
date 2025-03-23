@@ -63,6 +63,16 @@ const modalStyle = {
   maxHeight: '90vh',
   overflow: 'auto'
 }
+const getPackingMaterialUnit = (material: PackingMaterial | undefined) => {
+  if (!material) return 'ml' // Default to ml for oil products
+  return material.type.toLowerCase().includes('g') && !material.type.toLowerCase().includes('ml') ? 'g' : 'ml'
+}
+// Add a function to create consistent display names for packaging
+const createPackageDisplayName = (qty: number, packingMaterial: PackingMaterial | undefined) => {
+  if (!packingMaterial) return `${qty}g`
+  const unit = getPackingMaterialUnit(packingMaterial)
+  return `${qty}${unit} - ${packingMaterial.name}`
+}
 
 const OtherPageLayout = () => {
   const [products, setProducts] = useState<Product[]>([])
@@ -188,9 +198,18 @@ const OtherPageLayout = () => {
         return
       }
 
+      const selectedMaterial = packingMaterials.find(m => m._id === editRateInput.packingMaterialId)
+      const displayName = createPackageDisplayName(editRateInput.qty, selectedMaterial)
+
       const updatedProduct = {
         ...selectedProduct,
-        rates: [...selectedProduct.rates, { ...editRateInput }]
+        rates: [
+          ...selectedProduct.rates,
+          {
+            ...editRateInput,
+            displayName
+          }
+        ]
       }
 
       setSelectedProduct(updatedProduct)
@@ -317,10 +336,15 @@ const OtherPageLayout = () => {
   }
 
   const handleEditRate = (productId: string, rateIndex: number, updates: Partial<Rate>) => {
-    // Fix: Update selectedProduct instead of products
     if (selectedProduct && selectedProduct.id === productId) {
       const updatedRates = [...selectedProduct.rates]
       updatedRates[rateIndex] = { ...updatedRates[rateIndex], ...updates }
+
+      // If qty was updated, update the display name too
+      if (updates.qty !== undefined) {
+        const packingMaterial = getPackingMaterial(updatedRates[rateIndex].packingMaterialId)
+        updatedRates[rateIndex].displayName = createPackageDisplayName(updates.qty, packingMaterial)
+      }
 
       setSelectedProduct({
         ...selectedProduct,
@@ -488,10 +512,12 @@ const OtherPageLayout = () => {
                         const selectedMaterial = packingMaterials.find(m => m._id === e.target.value)
                         if (selectedMaterial) {
                           const unit = getPackingMaterialUnit(selectedMaterial)
+                          const displayName = createPackageDisplayName(selectedMaterial.capacity, selectedMaterial)
+
                           setRateInput({
                             packingMaterialId: e.target.value,
                             qty: selectedMaterial.capacity,
-                            displayName: `${selectedMaterial.capacity}${unit}`,
+                            displayName,
                             rate: 0
                           })
                         }

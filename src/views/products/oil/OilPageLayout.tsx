@@ -300,6 +300,12 @@ const OilPageLayout = () => {
       const updatedRates = [...selectedOil.rates]
       updatedRates[rateIndex] = { ...updatedRates[rateIndex], ...updates }
 
+      // If qty was updated, update the display name too
+      if (updates.qty !== undefined) {
+        const packingMaterial = getPackingMaterial(updatedRates[rateIndex].packingMaterialId)
+        updatedRates[rateIndex].displayName = createPackageDisplayName(updates.qty, packingMaterial)
+      }
+
       setSelectedOil({
         ...selectedOil,
         rates: updatedRates
@@ -340,9 +346,18 @@ const OilPageLayout = () => {
         return
       }
 
+      const selectedMaterial = packingMaterials.find(m => m._id === editRateInput.packingMaterialId)
+      const displayName = createPackageDisplayName(editRateInput.qty, selectedMaterial)
+
       const updatedOil = {
         ...selectedOil,
-        rates: [...selectedOil.rates, { ...editRateInput }]
+        rates: [
+          ...selectedOil.rates,
+          {
+            ...editRateInput,
+            displayName
+          }
+        ]
       }
 
       setSelectedOil(updatedOil)
@@ -370,6 +385,13 @@ const OilPageLayout = () => {
     if (!material) return 'Unknown'
     const unit = getPackingMaterialUnit(material)
     return `${material.name} (${material.capacity}${unit})`
+  }
+
+  // Add a function to create consistent display names for packaging
+  const createPackageDisplayName = (qty: number, packingMaterial: PackingMaterial | undefined) => {
+    if (!packingMaterial) return `${qty}ml`
+    const unit = getPackingMaterialUnit(packingMaterial)
+    return `${qty}${unit} - ${packingMaterial.name}`
   }
 
   return (
@@ -492,10 +514,13 @@ const OilPageLayout = () => {
                       onChange={e => {
                         const selectedMaterial = packingMaterials.find(m => m._id === e.target.value)
                         if (selectedMaterial) {
+                          const unit = getPackingMaterialUnit(selectedMaterial)
+                          const displayName = createPackageDisplayName(selectedMaterial.capacity, selectedMaterial)
+
                           setRateInput({
                             packingMaterialId: e.target.value,
                             qty: selectedMaterial.capacity,
-                            displayName: `${selectedMaterial.capacity}${getPackingMaterialUnit(selectedMaterial)}`,
+                            displayName,
                             rate: 0
                           })
                         }
