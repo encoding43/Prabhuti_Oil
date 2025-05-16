@@ -11,7 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const client = await clientPromise;
         const db = client.db('prabhutioil');
         const updateData = req.body;
-
+        
+        // Start session for transaction
         const session = client.startSession();
 
         try {
@@ -21,408 +22,268 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               _id: new ObjectId(id as string)
             });
 
-            if (!originalSale) {
-              throw new Error('Sale not found');
-            }
+            if (!originalSale) throw new Error('Sale not found');
 
-            // Get original and new sale dates (normalized to midnight)
-            const originalSaleDate = new Date(originalSale.date);
-            originalSaleDate.setHours(0, 0, 0, 0);
-            
-            const newSaleDate = new Date(updateData.date);
-            newSaleDate.setHours(0, 0, 0, 0);
+            // Format dates
+            const saleDate = new Date(updateData.date);
+            saleDate.setHours(0, 0, 0, 0);
 
-            // Check if we should skip material usage updates
-            const skipMaterialUsageUpdate = updateData.skipMaterialUsageUpdate === true;
-            
-            // Remove the flag from the data before saving to database
-            if (updateData.skipMaterialUsageUpdate !== undefined) {
-              delete updateData.skipMaterialUsageUpdate;
-            }
+            const originalDate = new Date(originalSale.date);
+            originalDate.setHours(0, 0, 0, 0);
 
-            // Always perform material updates unless explicitly skipped
-            if (!skipMaterialUsageUpdate) {
-              // First: Restore original stock for all original products
-              // This ensures we have a clean slate to work with
+            // ===== MATERIAL HANDLING =====
+            if (!updateData.skipMaterialUsageUpdate) {
+              // STEP 1: Restore all original materials
+              console.log('Restoring original materials');
+              
               for (const product of originalSale.products) {
                 const productDoc = await db.collection('products').findOne({
-                  _id: new ObjectId(product.productId)
+                  _id: new ObjectId(product.productId.toString())
                 });
 
                 if (productDoc) {
-                  // Calculate and restore raw material
+                  // Restore raw material stock
                   const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
                   await db.collection('rawmaterials').updateOne(
                     { _id: productDoc.rawMaterialId },
                     { $inc: { currentStock: rawMaterialUsed } }
                   );
+                  console.log(`Restored ${rawMaterialUsed} of raw material ${productDoc.rawMaterialId}`);
 
-                  // Restore packing material
-                  if (product.isPackagingMaterialUsed) {
-                    const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                    if (quantityInfo?.packingMaterialId) {
-                      await db.collection('packingmaterials').updateOne(
-                        { _id: quantityInfo.packingMaterialId },
-                        { $inc: { currentStock: product.nos } }
-                      );
-                    }
+                  // Restore packing material stock
+                  if (product.isPackagingMaterialUsed && product.packingMaterialId) {
+                    await db.collection('packingmaterials').updateOne(
+                      { _id: new ObjectId(product.packingMaterialId.toString()) },
+                      { $inc: { currentStock: product.nos } }
+                    );
+                    console.log(`Restored ${product.nos} of packing material ${product.packingMaterialId}`);
                   }
                 }
               }
 
-              // Second: Process all updated products to deduct new usage amounts
+              // STEP 2: Deduct new materials
+              console.log('Deducting new materials');
+              
               for (const product of updateData.products) {
                 const productDoc = await db.collection('products').findOne({
-                  _id: new ObjectId(product.productId)
+                  _id: new ObjectId(product.productId.toString())
                 });
 
                 if (productDoc) {
-                  // Calculate and deduct new raw material usage
+                  // Deduct raw material stock
                   const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
                   await db.collection('rawmaterials').updateOne(
                     { _id: productDoc.rawMaterialId },
                     { $inc: { currentStock: -rawMaterialUsed } }
                   );
+                  console.log(`Deducted ${rawMaterialUsed} of raw material ${productDoc.rawMaterialId}`);
 
-                  // Update packing material stock
-                  if (product.isPackagingMaterialUsed) {
-                    const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                    if (quantityInfo?.packingMaterialId) {
-                      await db.collection('packingmaterials').updateOne(
-                        { _id: quantityInfo.packingMaterialId },
-                        { $inc: { currentStock: -product.nos } }
-                      );
-                    }
+                  // Deduct packing material stock
+                  if (product.isPackagingMaterialUsed && product.packingMaterialId) {
+                    await db.collection('packingmaterials').updateOne(
+                      { _id: new ObjectId(product.packingMaterialId.toString()) },
+                      { $inc: { currentStock: -product.nos } }
+                    );
+                    console.log(`Deducted ${product.nos} of packing material ${product.packingMaterialId}`);
                   }
                 }
               }
             }
 
-            // Calculate payment amounts by method
-            const calculatePaymentsByMethod = (payments: { method: string, amount: number }[]) => {
-              return payments.reduce((acc: { [key: string]: number }, payment) => {
-                acc[payment.method] = (acc[payment.method] || 0) + payment.amount;
-                return acc;
-              }, {});
-            };
+            // ===== DAILY SUMMARY UPDATES =====
             
-            const originalPayments = calculatePaymentsByMethod(originalSale.payments || []);
-            const newPayments = calculatePaymentsByMethod(updateData.payments || []);
-            
-            // Prepare usage data for daily summary
-            let rawMaterialUsage: any[] = [];
-            let packingMaterialUsage: any[] = [];
-            let oilSales: any[] = [];
-
-            // Always generate material usage data even if skipping updates
-            // This ensures we have accurate material data for daily summary
-            // if date has changed or for edit operations that affect dailysummary
-            for (const product of updateData.products) {
-              const productDoc = await db.collection('products').findOne({
-                _id: new ObjectId(product.productId)
-              });
-
-              if (productDoc) {
-                // Track oil sales
-                if (productDoc.type === 'oil') {
-                  oilSales.push({
-                    productId: new ObjectId(product.productId),
-                    productName: product.name,
-                    quantity: product.qty * product.nos,
-                    amount: product.finalPrice
-                  });
-                }
-
-                // Track raw material usage
-                const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-                const rawMaterial = await db.collection('rawmaterials').findOne({
-                  _id: productDoc.rawMaterialId
-                });
-                
-                if (rawMaterial) {
-                  rawMaterialUsage.push({
-                    materialId: productDoc.rawMaterialId,
-                    materialName: rawMaterial.name,
-                    quantity: rawMaterialUsed,
-                    price: 0
-                  });
-                }
-
-                // Track packing material usage
-                if (product.isPackagingMaterialUsed) {
-                  const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                  if (quantityInfo?.packingMaterialId) {
-                    const packingMaterial = await db.collection('packingmaterials').findOne({
-                      _id: quantityInfo.packingMaterialId
-                    });
-                    
-                    if (packingMaterial) {
-                      packingMaterialUsage.push({
-                        materialId: quantityInfo.packingMaterialId,
-                        materialName: packingMaterial.name,
-                        quantity: product.nos,
-                        price: 0
-                      });
-                    }
-                  }
-                }
-              }
-            }
-
-            // Calculate original usage for adjustment
-            const originalRawMaterialUsage = [];
-            const originalPackingMaterialUsage = [];
-            const originalOilSales = [];
-            
-            for (const product of originalSale.products) {
-              const productDoc = await db.collection('products').findOne({
-                _id: new ObjectId(product.productId)
-              });
+            // Helper function to prepare material adjustment entries
+            const prepareMaterialAdjustments = async (products, isNegative = false) => {
+              const rawMaterialAdjustments = [];
+              const packingMaterialAdjustments = [];
+              const oilSaleAdjustments = [];
               
-              if (productDoc) {
-                // Track oil sales for original
-                if (productDoc.type === 'oil') {
-                  originalOilSales.push({
-                    productId: new ObjectId(product.productId),
-                    productName: product.name,
-                    quantity: -(product.qty * product.nos), // Negative to subtract
-                    amount: -product.finalPrice // Negative to subtract
-                  });
-                }
-                
-                // Track raw material usage for original
-                const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-                originalRawMaterialUsage.push({
-                  materialId: productDoc.rawMaterialId,
-                  materialName: productDoc.rawMaterialName || 'Unknown',
-                  quantity: -rawMaterialUsed, // Negative to subtract
-                  price: 0
-                });
-                
-                // Track packing material usage for original
-                if (product.isPackagingMaterialUsed) {
-                  const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                  if (quantityInfo?.packingMaterialId) {
-                    originalPackingMaterialUsage.push({
-                      materialId: quantityInfo.packingMaterialId,
-                      materialName: 'Unknown',
-                      quantity: -product.nos, // Negative to subtract
-                      price: 0
-                    });
-                  }
-                }
-              }
-            }
-            
-            // If date has changed, handle updating two different daily summaries
-            if (originalSaleDate.getTime() !== newSaleDate.getTime()) {
-              // For original date's summary: remove sales amounts AND adjust material usage counters
-              // We need to subtract the original material usage from the original date
-              const originalRawMaterialUsage = [];
-              const originalPackingMaterialUsage = [];
-              const originalOilSales = [];
-              
-              // Calculate original material usage to subtract from the original date
-              for (const product of originalSale.products) {
+              for (const product of products) {
                 const productDoc = await db.collection('products').findOne({
-                  _id: new ObjectId(product.productId)
+                  _id: new ObjectId(product.productId.toString())
                 });
                 
                 if (productDoc) {
-                  // Track oil sales for original date
-                  if (productDoc.type === 'oil') {
-                    originalOilSales.push({
-                      productId: new ObjectId(product.productId),
-                      productName: product.name,
-                      quantity: -(product.qty * product.nos), // Negative to subtract
-                      amount: -product.finalPrice // Negative to subtract
-                    });
-                  }
-                  
-                  // Track raw material usage for original date
+                  // Handle raw material
                   const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-                  originalRawMaterialUsage.push({
+                  const multiplier = isNegative ? -1 : 1;
+                  
+                  const rawMaterial = await db.collection('rawmaterials').findOne({
+                    _id: productDoc.rawMaterialId
+                  });
+                  
+                  rawMaterialAdjustments.push({
                     materialId: productDoc.rawMaterialId,
-                    materialName: 'Unknown', // Not needed for adjustment
-                    quantity: -rawMaterialUsed, // Negative to subtract
+                    materialName: rawMaterial?.name || 'Unknown',
+                    quantity: rawMaterialUsed * multiplier,
                     price: 0
                   });
                   
-                  // Track packing material usage for original date
-                  if (product.isPackagingMaterialUsed) {
-                    const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                    if (quantityInfo?.packingMaterialId) {
-                      originalPackingMaterialUsage.push({
-                        materialId: quantityInfo.packingMaterialId,
-                        materialName: 'Unknown', // Not needed for adjustment
-                        quantity: -product.nos, // Negative to subtract
-                        price: 0
-                      });
-                    }
+                  // Handle oil sales
+                  if (productDoc.type === 'oil') {
+                    oilSaleAdjustments.push({
+                      productId: new ObjectId(product.productId.toString()),
+                      productName: product.name,
+                      quantity: (product.qty * product.nos) * multiplier,
+                      amount: product.finalPrice * multiplier
+                    });
+                  }
+                  
+                  // Handle packing material
+                  if (product.isPackagingMaterialUsed && product.packingMaterialId) {
+                    const packingMaterial = await db.collection('packingmaterials').findOne({
+                      _id: new ObjectId(product.packingMaterialId.toString())
+                    });
+                    
+                    packingMaterialAdjustments.push({
+                      materialId: new ObjectId(product.packingMaterialId.toString()),
+                      materialName: packingMaterial?.name || 'Unknown',
+                      quantity: product.nos * multiplier,
+                      price: 0
+                    });
                   }
                 }
               }
               
-              // Remove financial impact from original date
+              return {
+                rawMaterialAdjustments,
+                packingMaterialAdjustments,
+                oilSaleAdjustments
+              };
+            };
+            
+            // If date has changed, handle both dates
+            if (originalDate.getTime() !== saleDate.getTime()) {
+              console.log('Dates differ, updating both dates');
+              
+              // For original date: remove the original usage
+              const originalAdjustments = await prepareMaterialAdjustments(originalSale.products, true);
+              
+              // Update original date summary with negative adjustments
               await db.collection('dailysummary').updateOne(
-                { date: originalSaleDate },
+                { date: originalDate },
                 {
                   $inc: {
                     totalSales: -originalSale.totalAmount,
-                    pendingAmount: -originalSale.remainingAmount,
-                    onlineAmount: -(originalPayments.online || 0),
-                    cashAmount: -(originalPayments.cash || 0)
+                    pendingAmount: -originalSale.remainingAmount
                   },
                   $push: {
-                    // Add adjustment entries to counter the original usage
-                    rawMaterialUsage: { $each: originalRawMaterialUsage },
-                    packingMaterialUsage: { $each: originalPackingMaterialUsage },
-                    oilSales: { $each: originalOilSales }
+                    rawMaterialUsage: { $each: originalAdjustments.rawMaterialAdjustments },
+                    packingMaterialUsage: { $each: originalAdjustments.packingMaterialAdjustments },
+                    oilSales: { $each: originalAdjustments.oilSaleAdjustments }
                   }
                 }
               );
               
-              // For new date: add new material usage - only if not skipping updates
-              const dailySummaryUpdate: any = {
-                $inc: {
-                  totalSales: updateData.totalAmount,
-                  pendingAmount: updateData.remainingAmount,
-                  onlineAmount: newPayments.online || 0,
-                  cashAmount: newPayments.cash || 0
-                },
-                $setOnInsert: {
-                  createdAt: new Date()
-                }
-              };
-              
-              // Only add new material usage if not skipping updates
-              if (!skipMaterialUsageUpdate && rawMaterialUsage.length > 0) {
-                dailySummaryUpdate.$push = {
-                  rawMaterialUsage: { $each: rawMaterialUsage },
-                  packingMaterialUsage: { $each: packingMaterialUsage },
-                  oilSales: { $each: oilSales }
-                };
-              }
-              
-              await db.collection('dailysummary').updateOne(
-                { date: newSaleDate },
-                dailySummaryUpdate,
-                { upsert: true }
-              );
-            } else {
-              // If date is unchanged, just update the financial amounts
-              // Also add material usage adjustment entries if needed
-              
-              if (!skipMaterialUsageUpdate) {
-                // We need to create negative adjustment entries for the original material usage
-                const originalRawMaterialUsage = [];
-                const originalPackingMaterialUsage = [];
-                const originalOilSales = [];
+              // For new date: add the new usage
+              if (!updateData.skipMaterialUsageUpdate) {
+                const newAdjustments = await prepareMaterialAdjustments(updateData.products);
                 
-                // Calculate original material usage to subtract
-                for (const product of originalSale.products) {
-                  const productDoc = await db.collection('products').findOne({
-                    _id: new ObjectId(product.productId)
-                  });
-                  
-                  if (productDoc) {
-                    // Track oil sales 
-                    if (productDoc.type === 'oil') {
-                      originalOilSales.push({
-                        productId: new ObjectId(product.productId),
-                        productName: product.name,
-                        quantity: -(product.qty * product.nos), // Negative to subtract
-                        amount: -product.finalPrice // Negative to subtract
-                      });
-                    }
-                    
-                    // Track raw material usage
-                    const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-                    originalRawMaterialUsage.push({
-                      materialId: productDoc.rawMaterialId,
-                      materialName: 'Unknown', // Not needed for adjustment
-                      quantity: -rawMaterialUsed, // Negative to subtract
-                      price: 0
-                    });
-                    
-                    // Track packing material usage
-                    if (product.isPackagingMaterialUsed) {
-                      const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                      if (quantityInfo?.packingMaterialId) {
-                        originalPackingMaterialUsage.push({
-                          materialId: quantityInfo.packingMaterialId,
-                          materialName: 'Unknown', // Not needed for adjustment
-                          quantity: -product.nos, // Negative to subtract
-                          price: 0
-                        });
-                      }
-                    }
-                  }
-                }
-                
-                // Update with adjustments for same date
+                // Update new date summary with positive adjustments
                 await db.collection('dailysummary').updateOne(
-                  { date: newSaleDate },
+                  { date: saleDate },
+                  {
+                    $inc: {
+                      totalSales: updateData.totalAmount,
+                      pendingAmount: updateData.remainingAmount
+                    },
+                    $push: {
+                      rawMaterialUsage: { $each: newAdjustments.rawMaterialAdjustments },
+                      packingMaterialUsage: { $each: newAdjustments.packingMaterialAdjustments },
+                      oilSales: { $each: newAdjustments.oilSaleAdjustments }
+                    },
+                    $setOnInsert: { createdAt: new Date() }
+                  },
+                  { upsert: true }
+                );
+              } else {
+                // Only update financials if skipping material updates
+                await db.collection('dailysummary').updateOne(
+                  { date: saleDate },
+                  {
+                    $inc: {
+                      totalSales: updateData.totalAmount,
+                      pendingAmount: updateData.remainingAmount
+                    },
+                    $setOnInsert: { createdAt: new Date() }
+                  },
+                  { upsert: true }
+                );
+              }
+            } else {
+              console.log('Same date, updating with adjustments');
+              
+              // Same date: adjust the differences
+              if (!updateData.skipMaterialUsageUpdate) {
+                // Get negative adjustments for original products
+                const originalAdjustments = await prepareMaterialAdjustments(originalSale.products, true);
+                
+                // Get positive adjustments for new products
+                const newAdjustments = await prepareMaterialAdjustments(updateData.products);
+                
+                // Update with both sets of adjustments
+                await db.collection('dailysummary').updateOne(
+                  { date: saleDate },
                   {
                     $inc: {
                       totalSales: updateData.totalAmount - originalSale.totalAmount,
-                      pendingAmount: updateData.remainingAmount - originalSale.remainingAmount,
-                      onlineAmount: (newPayments.online || 0) - (originalPayments.online || 0),
-                      cashAmount: (newPayments.cash || 0) - (originalPayments.cash || 0)
+                      pendingAmount: updateData.remainingAmount - originalSale.remainingAmount
                     },
                     $push: {
-                      // First add negative adjustments to counter original usage
                       rawMaterialUsage: { 
                         $each: [
-                          ...originalRawMaterialUsage,  // Negative adjustments
-                          ...rawMaterialUsage           // New positive entries
-                        ] 
+                          ...originalAdjustments.rawMaterialAdjustments,
+                          ...newAdjustments.rawMaterialAdjustments
+                        ]
                       },
                       packingMaterialUsage: { 
                         $each: [
-                          ...originalPackingMaterialUsage,  // Negative adjustments
-                          ...packingMaterialUsage           // New positive entries
-                        ] 
+                          ...originalAdjustments.packingMaterialAdjustments,
+                          ...newAdjustments.packingMaterialAdjustments
+                        ]
                       },
                       oilSales: { 
                         $each: [
-                          ...originalOilSales,  // Negative adjustments
-                          ...oilSales           // New positive entries
-                        ] 
+                          ...originalAdjustments.oilSaleAdjustments,
+                          ...newAdjustments.oilSaleAdjustments
+                        ]
                       }
                     }
                   }
                 );
               } else {
-                // If skipping material updates, just update financial amounts
+                // Just update financial data if skipping material updates
                 await db.collection('dailysummary').updateOne(
-                  { date: newSaleDate },
+                  { date: saleDate },
                   {
                     $inc: {
                       totalSales: updateData.totalAmount - originalSale.totalAmount,
-                      pendingAmount: updateData.remainingAmount - originalSale.remainingAmount,
-                      onlineAmount: (newPayments.online || 0) - (originalPayments.online || 0),
-                      cashAmount: (newPayments.cash || 0) - (originalPayments.cash || 0)
+                      pendingAmount: updateData.remainingAmount - originalSale.remainingAmount
                     }
                   }
                 );
               }
             }
 
-            const { _id, ...updateDataWithoutId } = updateData;
+            // Clean up updateData before saving
+            if (updateData._id) delete updateData._id;
+            if (updateData.skipMaterialUsageUpdate) delete updateData.skipMaterialUsageUpdate;
 
-            const finalUpdateData = {
-              ...updateDataWithoutId,
-              // Don't override payments unless they were explicitly provided
-              payments: updateData.payments || originalSale.payments || []
-            };
+            // Process products to ensure ObjectIds are correctly handled
+            if (updateData.products) {
+              updateData.products = updateData.products.map((product: any) => ({
+                ...product,
+                productId: new ObjectId(product.productId.toString()),
+                packingMaterialId: product.packingMaterialId ? new ObjectId(product.packingMaterialId.toString()) : null
+              }));
+            }
 
             // Update sale record
             const result = await db.collection('sales').findOneAndUpdate(
               { _id: new ObjectId(id as string) },
               {
                 $set: {
-                  ...finalUpdateData,
+                  ...updateData,
                   updatedAt: new Date()
                 }
               },
@@ -436,7 +297,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } catch (error) {
         console.error('Error:', error);
-        res.status(500).json({ error: 'Failed to update sale' });
+        res.status(500).json({ error: 'Failed to update sale', message: error instanceof Error ? error.message : 'Unknown error' });
       }
       break;
 
@@ -467,13 +328,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               return acc;
             }, {});
 
-            // Restore materials stock
+            // Create adjustment entries for daily summary
+            const rawMaterialAdjustments = [];
+            const packingMaterialAdjustments = [];
+            const oilSaleAdjustments = [];
+            
+            // Prepare negative adjustments and restore stock
             for (const product of sale.products) {
+              // Get the product document first
               const productDoc = await db.collection('products').findOne({
-                _id: new ObjectId(product.productId)
+                _id: new ObjectId(product.productId.toString())
               });
 
               if (productDoc) {
+                // Handle raw material
                 const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
                 
                 // Restore raw material stock
@@ -481,67 +349,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   { _id: productDoc.rawMaterialId },
                   { $inc: { currentStock: rawMaterialUsed } }
                 );
-
-                // Restore packing material stock
-                if (product.isPackagingMaterialUsed) {
-                  const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                  if (quantityInfo?.packingMaterialId) {
-                    await db.collection('packingmaterials').updateOne(
-                      { _id: quantityInfo.packingMaterialId },
-                      { $inc: { currentStock: product.nos } }
-                    );
-                  }
-                }
-              }
-            }
-
-            // Create adjustment entries for material usage in daily summary
-            const materialUsageAdjustments = [];
-            const packingMaterialAdjustments = [];
-            const oilSaleAdjustments = [];
-            
-            // Calculate negative adjustments for all materials used in this sale
-            for (const product of sale.products) {
-              const productDoc = await db.collection('products').findOne({
-                _id: new ObjectId(product.productId)
-              });
-              
-              if (productDoc) {
-                // Generate negative oil sales adjustments
+                console.log(`Restored ${rawMaterialUsed} of raw material ${productDoc.rawMaterialId}`);
+                
+                // Create raw material adjustment
+                const rawMaterial = await db.collection('rawmaterials').findOne({
+                  _id: productDoc.rawMaterialId
+                });
+                
+                rawMaterialAdjustments.push({
+                  materialId: productDoc.rawMaterialId,
+                  materialName: rawMaterial?.name || 'Unknown',
+                  quantity: -rawMaterialUsed, // Negative to remove from usage
+                  price: 0
+                });
+                
+                // Handle oil sales adjustments
                 if (productDoc.type === 'oil') {
                   oilSaleAdjustments.push({
-                    productId: new ObjectId(product.productId),
+                    productId: new ObjectId(product.productId.toString()),
                     productName: product.name,
                     quantity: -(product.qty * product.nos), // Negative to remove
                     amount: -product.finalPrice // Negative to remove
                   });
                 }
-                
-                // Generate negative raw material adjustments
-                const rawMaterialUsed = ((product.qty/1000) * product.nos) / (productDoc.recoveryRate / 100);
-                materialUsageAdjustments.push({
-                  materialId: productDoc.rawMaterialId,
-                  materialName: 'Adjustment', // Not important for deletion
-                  quantity: -rawMaterialUsed, // Negative to remove
-                  price: 0
-                });
-                
-                // Generate negative packing material adjustments
-                if (product.isPackagingMaterialUsed) {
-                  const quantityInfo = productDoc.quantities.find((q: { qty: number }) => q.qty === product.qty);
-                  if (quantityInfo?.packingMaterialId) {
-                    packingMaterialAdjustments.push({
-                      materialId: quantityInfo.packingMaterialId,
-                      materialName: 'Adjustment', // Not important for deletion
-                      quantity: -product.nos, // Negative to remove
-                      price: 0
-                    });
-                  }
+
+                // Handle packing material
+                if (product.isPackagingMaterialUsed && product.packingMaterialId) {
+                  // Get the packing material for the adjustment entry
+                  const packingMaterial = await db.collection('packingmaterials').findOne({
+                    _id: new ObjectId(product.packingMaterialId.toString())
+                  });
+                  
+                  // Restore stock
+                  await db.collection('packingmaterials').updateOne(
+                    { _id: new ObjectId(product.packingMaterialId.toString()) },
+                    { $inc: { currentStock: product.nos } }
+                  );
+                  console.log(`Restored ${product.nos} of packing material ${product.packingMaterialId}`);
+                  
+                  // Create packing material adjustment
+                  packingMaterialAdjustments.push({
+                    materialId: new ObjectId(product.packingMaterialId.toString()),
+                    materialName: packingMaterial?.name || 'Unknown',
+                    quantity: -product.nos, // Negative to remove from usage
+                    price: 0
+                  });
                 }
               }
             }
             
-            // Remove financial impact AND add adjustment entries for material usage
+            // Update daily summary with all adjustments
             await db.collection('dailysummary').updateOne(
               { date: saleDate },
               {
@@ -552,8 +409,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   cashAmount: -(paymentsByMethod.cash || 0)
                 },
                 $push: {
-                  // Add adjustment entries to counter the material usage
-                  rawMaterialUsage: { $each: materialUsageAdjustments },
+                  rawMaterialUsage: { $each: rawMaterialAdjustments },
                   packingMaterialUsage: { $each: packingMaterialAdjustments },
                   oilSales: { $each: oilSaleAdjustments }
                 }
