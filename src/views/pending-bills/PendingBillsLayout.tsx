@@ -440,7 +440,7 @@ const PendingBillsLayout = () => {
                               fullWidth
                               type='number'
                               label='Amount'
-                              value={newPayment.amount}
+                              value={newPayment.amount === 0 ? '' : newPayment.amount}
                               onChange={e => setNewPayment(prev => ({ ...prev, amount: Number(e.target.value) }))}
                             />
                           </Grid>

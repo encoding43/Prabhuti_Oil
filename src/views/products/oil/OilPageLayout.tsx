@@ -494,7 +494,7 @@ const OilPageLayout = () => {
                   fullWidth
                   type='number'
                   label='Recovery Rate (%)'
-                  value={newOilForm.recoveryRate}
+                  value={newOilForm.recoveryRate === 0 ? '' : newOilForm.recoveryRate}
                   onChange={e => setNewOilForm(prev => ({ ...prev, recoveryRate: Number(e.target.value) }))}
                 />
               </Grid>
@@ -538,7 +538,7 @@ const OilPageLayout = () => {
                       fullWidth
                       type='number'
                       label='Rate (₹)'
-                      value={rateInput.rate}
+                      value={rateInput.rate === 0 ? '' : rateInput.rate}
                       onChange={e => setRateInput(prev => ({ ...prev, rate: Number(e.target.value) }))}
                     />
                   </Grid>
@@ -657,7 +657,7 @@ const OilPageLayout = () => {
                       fullWidth
                       type='number'
                       label='Recovery Rate (%)'
-                      value={selectedOil.recoveryRate}
+                      value={selectedOil.recoveryRate === 0 ? '' : selectedOil.recoveryRate}
                       onChange={e =>
                         selectedOil && setSelectedOil({ ...selectedOil, recoveryRate: Number(e.target.value) })
                       }
@@ -700,7 +700,7 @@ const OilPageLayout = () => {
                           fullWidth
                           type='number'
                           label='Rate (₹)'
-                          value={editRateInput.rate}
+                          value={editRateInput.rate === 0 ? '' : editRateInput.rate}
                           onChange={e => setEditRateInput(prev => ({ ...prev, rate: Number(e.target.value) }))}
                         />
                       </Grid>
@@ -739,7 +739,7 @@ const OilPageLayout = () => {
                                     <TextField
                                       size='small'
                                       type='number'
-                                      value={rate.qty}
+                                      value={rate.qty === 0 ? '' : rate.qty}
                                       onChange={e =>
                                         handleEditRate(selectedOil.id, index, { qty: Number(e.target.value) })
                                       }
@@ -758,7 +758,7 @@ const OilPageLayout = () => {
                                     <TextField
                                       size='small'
                                       type='number'
-                                      value={rate.rate}
+                                      value={rate.rate === 0 ? '' : rate.rate}
                                       onChange={e =>
                                         handleEditRate(selectedOil.id, index, { rate: Number(e.target.value) })
                                       }

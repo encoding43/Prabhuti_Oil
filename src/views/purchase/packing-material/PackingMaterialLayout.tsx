@@ -309,7 +309,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Quantity'
-                  value={newMaterialForm.qty}
+                  value={newMaterialForm.qty === 0 ? '' : newMaterialForm.qty}
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, qty: Number(e.target.value) }))}
                 />
               </Grid>
@@ -340,7 +340,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Nos'
-                  value={newMaterialForm.nos}
+                  value={newMaterialForm.nos === 0 ? '' : newMaterialForm.nos}
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, nos: Number(e.target.value) }))}
                 />
               </Grid>
@@ -349,7 +349,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Price'
-                  value={newMaterialForm.price}
+                  value={newMaterialForm.price === 0 ? '' : newMaterialForm.price}
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, price: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
@@ -391,7 +391,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Nos'
-                  value={addStockForm.nos}
+                  value={addStockForm.nos === 0 ? '' : addStockForm.nos}
                   onChange={e => setAddStockForm(prev => ({ ...prev, nos: Number(e.target.value) }))}
                 />
               </Grid>
@@ -400,7 +400,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Price'
-                  value={addStockForm.price}
+                  value={addStockForm.price === 0 ? '' : addStockForm.price}
                   onChange={e => setAddStockForm(prev => ({ ...prev, price: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
@@ -499,7 +499,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Nos'
-                  value={editForm.nos}
+                  value={editForm.nos === 0 ? '' : editForm.nos}
                   onChange={e => setEditForm(prev => ({ ...prev, nos: Number(e.target.value) }))}
                 />
               </Grid>
@@ -508,7 +508,7 @@ const PackingMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Rate'
-                  value={editForm.rate}
+                  value={editForm.rate === 0 ? '' : editForm.rate}
                   onChange={e => setEditForm(prev => ({ ...prev, rate: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
