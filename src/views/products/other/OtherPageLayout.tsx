@@ -535,7 +535,7 @@ const OtherPageLayout = () => {
                       fullWidth
                       type='number'
                       label='Rate (₹)'
-                      value={rateInput.rate}
+                      value={rateInput.rate === 0 ? '' : rateInput.rate}
                       onChange={e => setRateInput(prev => ({ ...prev, rate: Number(e.target.value) }))}
                     />
                   </Grid>
@@ -692,7 +692,7 @@ const OtherPageLayout = () => {
                         fullWidth
                         type='number'
                         label='Rate (₹)'
-                        value={editRateInput.rate}
+                        value={editRateInput.rate === 0 ? '' : editRateInput.rate}
                         onChange={e => setEditRateInput(prev => ({ ...prev, rate: Number(e.target.value) }))}
                       />
                     </Grid>
@@ -732,7 +732,7 @@ const OtherPageLayout = () => {
                                   <TextField
                                     size='small'
                                     type='number'
-                                    value={rate.qty}
+                                    value={rate.qty === 0 ? '' : rate.qty}
                                     onChange={e =>
                                       handleEditRate(selectedProduct.id, index, { qty: Number(e.target.value) })
                                     }
@@ -752,7 +752,7 @@ const OtherPageLayout = () => {
                                   <TextField
                                     size='small'
                                     type='number'
-                                    value={rate.rate}
+                                    value={rate.rate === 0 ? '' : rate.rate}
                                     onChange={e =>
                                       handleEditRate(selectedProduct.id, index, { rate: Number(e.target.value) })
                                     }

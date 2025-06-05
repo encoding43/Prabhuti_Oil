@@ -430,7 +430,7 @@ const AddSaleLayouts = () => {
                         fullWidth
                         type='number'
                         label='Nos'
-                        value={product.nos}
+                        value={product.nos === 0 ? '' : product.nos}
                         onChange={e => handleProductChange(index, 'nos', Number(e.target.value))}
                       />
                     </Grid>
@@ -467,7 +467,7 @@ const AddSaleLayouts = () => {
                         fullWidth
                         type='number'
                         label='Discount'
-                        value={product.discount}
+                        value={product.discount === 0 ? '' : product.discount}
                         onChange={e => handleProductChange(index, 'discount', Number(e.target.value))}
                         InputProps={{ startAdornment: <span>₹</span> }}
                       />
@@ -516,7 +516,7 @@ const AddSaleLayouts = () => {
                       fullWidth
                       type='number'
                       label='Courier Price'
-                      value={formData.courierPrice}
+                      value={formData.courierPrice === 0 ? '' : formData.courierPrice}
                       onChange={e => setFormData(prev => ({ ...prev, courierPrice: Number(e.target.value) }))}
                       InputProps={{ startAdornment: <span>₹</span> }}
                     />
@@ -541,7 +541,7 @@ const AddSaleLayouts = () => {
                     fullWidth
                     type='number'
                     label='Online Amount'
-                    value={formData.onlineAmount}
+                    value={formData.onlineAmount === 0 ? '' : formData.onlineAmount}
                     onChange={e => setFormData(prev => ({ ...prev, onlineAmount: Number(e.target.value) }))}
                     InputProps={{
                       startAdornment: <span>₹</span>,
@@ -558,7 +558,7 @@ const AddSaleLayouts = () => {
                     fullWidth
                     type='number'
                     label='Cash Amount'
-                    value={formData.cashAmount}
+                    value={formData.cashAmount === 0 ? '' : formData.cashAmount}
                     onChange={e => setFormData(prev => ({ ...prev, cashAmount: Number(e.target.value) }))}
                     InputProps={{
                       startAdornment: <span>₹</span>,

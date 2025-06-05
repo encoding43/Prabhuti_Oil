@@ -899,7 +899,7 @@ const SalesTransactionLayout = () => {
                                 fullWidth
                                 type='number'
                                 label='Nos'
-                                value={product.nos}
+                                value={product.nos === 0 ? '' : product.nos}
                                 onChange={e => handleProductChange(index, 'nos', e.target.value)}
                               />
                             </Grid>
@@ -931,7 +931,7 @@ const SalesTransactionLayout = () => {
                                 fullWidth
                                 type='number'
                                 label='Discount'
-                                value={product.discount}
+                                value={product.discount === 0 ? '' : product.discount}
                                 onChange={e => handleProductChange(index, 'discount', e.target.value)}
                                 InputProps={{ startAdornment: <span>₹</span> }}
                               />

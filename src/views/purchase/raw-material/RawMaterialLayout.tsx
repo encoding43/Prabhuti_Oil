@@ -296,7 +296,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Incoming Stock (KG)'
-                  value={newMaterialForm.stock}
+                  value={newMaterialForm.stock === 0 ? '' : newMaterialForm.stock}
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, stock: Number(e.target.value) }))}
                 />
               </Grid>
@@ -315,7 +315,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Price Total'
-                  value={newMaterialForm.price}
+                  value={newMaterialForm.price === 0 ? '' : newMaterialForm.price}
                   onChange={e => setNewMaterialForm(prev => ({ ...prev, price: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
@@ -357,7 +357,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Incoming Stock (KG)'
-                  value={addStockForm.stock}
+                  value={addStockForm.stock === 0 ? '' : addStockForm.stock}
                   onChange={e => setAddStockForm(prev => ({ ...prev, stock: Number(e.target.value) }))}
                 />
               </Grid>
@@ -366,7 +366,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Price'
-                  value={addStockForm.price}
+                  value={addStockForm.price === 0 ? '' : addStockForm.price}
                   onChange={e => setAddStockForm(prev => ({ ...prev, price: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
@@ -464,7 +464,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Stock (KG)'
-                  value={editForm.stock}
+                  value={editForm.stock === 0 ? '' : editForm.stock}
                   onChange={e => setEditForm(prev => ({ ...prev, stock: Number(e.target.value) }))}
                 />
               </Grid>
@@ -473,7 +473,7 @@ const RawMaterialLayout = () => {
                   fullWidth
                   type='number'
                   label='Price'
-                  value={editForm.price}
+                  value={editForm.price === 0 ? '' : editForm.price}
                   onChange={e => setEditForm(prev => ({ ...prev, price: Number(e.target.value) }))}
                   InputProps={{ startAdornment: <span>₹</span> }}
                 />
